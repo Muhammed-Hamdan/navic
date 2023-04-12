@@ -2,7 +2,7 @@ import numpy as np
 from fractions import Fraction
 
 # CA code generation API
-
+#initial condition of register G2 taken from NavIC ICD
 SV_L5 = {
    1: '1110100111',
    2: '0000100110',
@@ -38,6 +38,7 @@ SV_S = {
 }
 
 #PRN code generation for NavIC constellation
+#function to shift the bits according to taps given to registers
 def shift(register, feedback, output):
     """GPS Shift Register
     
@@ -66,6 +67,7 @@ def shift(register, feedback, output):
     
     return out
 
+#function to generate the PRN sequrnce given the satellite ID
 def genNavicCaCode(sv):
     """Build the CA code (PRN) for a given satellite ID
     
@@ -98,6 +100,7 @@ def genNavicCaCode(sv):
     # return C/A code!
     return np.array(ca)
 
+#function to upsample the PRN sequence generated to required sampling rate
 def genNavicCaTable(samplingFreq):
     prnIdMax = 14
     codeLength = 1023
@@ -109,7 +112,7 @@ def genNavicCaTable(samplingFreq):
     return np.array([genNavicCaCode(i) for i in range(1,prnIdMax+1)])[:,indexArr].T
 
 # Bit generation and Modulation API
-
+#class below will generate modulated IQ samples, follows ICD
 class NavicL5sModulator():
     def __init__(self, fs):
         self.sampleRate = fs
@@ -122,7 +125,7 @@ class NavicL5sModulator():
         codeNumSample = codeTable.shape[0]
         numSample = x.shape[0]
         numChannel = x.shape[1]
-
+        #BPSK modulation
         spsBpskSig = 1-2*np.logical_xor(x, codeTable[np.arange(self.codePhase, self.codePhase+numSample)%codeNumSample, :])
 
         subCarrFd = 2*5*1.023e6
@@ -142,15 +145,16 @@ class NavicL5sModulator():
 
         alpha = (2**0.5)/3
         beta = 2/3
-        gamma = 1/3
-        iqsig = alpha*(spsBpskSig + rsBocPilotSig) + 1j*(beta*rsBocDataSig - gamma*interplexSig)  # Document formula
-
+        gamma = 1/3 
+        # Document formula
+        iqsig = alpha*(spsBpskSig + rsBocPilotSig) + 1j*(beta*rsBocDataSig - gamma*interplexSig)
         return iqsig
 
     def Release(self):
         self.codePhase = 0
         self.subCarrPhase = 0
 
+#class to generate navigation data at 50sps
 class NavicDataGen():
     def __init__(self, ds=50, fs=10*1.023e6, numChannel=1, file=None):
       self.dataRate = ds
@@ -183,7 +187,7 @@ class NavicDataGen():
        return self.bitStream
       
 # Channel model API
-
+#the functions below simulate a channel, thereby create offsets and shift delays.
 class PhaseFrequencyOffset():
   def __init__(self, sample_rate=1, phase_offset=0):
     self.phi = phase_offset
@@ -275,7 +279,7 @@ def PowerScale(x, SqrtPr):
 
 def navic_pcps_acquisition(x, prnSeq, fs, fSearch, threshold=0):
 
-    """Performs PCPS (Parallel Code Phase Search) acquisition
+    """Performs PCPS (Parallel Code Phase Search using FFT algorithm) acquisition
 
     :param x: Input signal buffer
     :param prnSeq: Sampled PRN sequence of satellite being searched
@@ -314,6 +318,8 @@ def navic_pcps_acquisition(x, prnSeq, fs, fSearch, threshold=0):
     else:
         return False, 0, 0
 
+#acquisition will provide rough frequency and code offsets. tracking will do precise calculation of frequency shifts and code delays
+#thereby locks the values once threshold is reached
 class NavicTracker:
     def __init__(self):
         # Public, tunable properties
@@ -562,3 +568,4 @@ class NavicTracker:
         self.pPLLNCOOut = 0
         self.pDLLWPrevious1 = 0
         self.pDLLNCOOut = 0
+#end of acquisition and tracking code

@@ -2,7 +2,7 @@ import numpy as np
 from fractions import Fraction
 
 # CA code generation API
-#initial condition of register G2 taken from NavIC ICD
+#Initial condition of register G2 taken from NavIC ICD
 SV_L5 = {
    1: '1110100111',
    2: '0000100110',

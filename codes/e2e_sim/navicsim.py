@@ -117,23 +117,32 @@ class NavicL5sModulator():
     def __init__(self, fs):
         self.sampleRate = fs
         self.codePhase = 0
-        self.subCarrPhase = 0
+
+        # BOC(m,n) Init
+        self.m = 5; self.n = 2
+        fsc = self.m*1.023e6
+        epsilon = fsc*1/(100*self.sampleRate)
+        self.subCarrPhase = epsilon 
 
     # columns of x have samples
     # columns of codeTable have sampled PRN sequence
     def Modulate(self, x, codeTable):
+
         codeNumSample = codeTable.shape[0]
         numSample = x.shape[0]
         numChannel = x.shape[1]
-        #BPSK modulation
+
         spsBpskSig = 1-2*np.logical_xor(x, codeTable[np.arange(self.codePhase, self.codePhase+numSample)%codeNumSample, :])
 
-        subCarrFd = 2*5*1.023e6
-        subCarrSym = np.array([1, -1])
-        subCarr1Ch = subCarrSym[(np.arange(numSample)*subCarrFd/self.sampleRate + self.subCarrPhase).astype(np.int32) & 1]
+        # Subcarrier generation for BOC
+        subCarr1Ch = self.__GenBocSubCarrier(numSample)
         SubCarrSig = np.tile(np.array([subCarr1Ch]).T, (1, numChannel))
-        PilotSig = np.ones((numSample, numChannel)); PilotSig[1::2, :] = -1
-        DataSig = 1-2*np.random.binomial(1, 0.5, (numSample, numChannel))
+
+        # PRN sequence of SPS is RS pilot PRN sequence
+        PilotCode = np.tile(codeTable[np.arange(self.codePhase, self.codePhase+numSample)%codeNumSample, :], (self.n, 1))[0::self.n]
+        PilotSig = 1-2*PilotCode
+        # Data for RS is data of SPS
+        DataSig = 1-2*x
 
         rsBocPilotSig = PilotSig * SubCarrSig
         rsBocDataSig = DataSig * SubCarrSig
@@ -141,18 +150,30 @@ class NavicL5sModulator():
         interplexSig = spsBpskSig * rsBocDataSig * rsBocPilotSig
 
         self.codePhase = (self.codePhase+numSample)%codeNumSample
-        self.subCarrPhase += (numSample*subCarrFd/self.sampleRate)%1; self.subCarrPhase %= 1
 
         alpha = (2**0.5)/3
         beta = 2/3
-        gamma = 1/3 
-        # Document formula
-        iqsig = alpha*(spsBpskSig + rsBocPilotSig) + 1j*(beta*rsBocDataSig - gamma*interplexSig)
+        gamma = 1/3
+        iqsig = alpha*(spsBpskSig + rsBocPilotSig) + 1j*(beta*rsBocDataSig - gamma*interplexSig)  # Document formula
+
         return iqsig
+    
+    def __GenBocSubCarrier(self, N):
+       ts = 1/self.sampleRate
+       t = np.arange(N)*ts
+       
+       fsc = self.m*1.023e6
+       subCarrier = np.sign(np.sin(2*np.pi*(fsc*t + self.subCarrPhase))) 
+       self.subCarrPhase += fsc*N*ts
+       self.subCarrPhase -= int(self.subCarrPhase)
+       return subCarrier
 
     def Release(self):
         self.codePhase = 0
-        self.subCarrPhase = 0
+
+        fsc = self.m*1.023e6
+        epsilon = fsc*1/(100*self.sampleRate)
+        self.subCarrPhase = epsilon
 
 #class to generate navigation data at 50sps
 class NavicDataGen():
